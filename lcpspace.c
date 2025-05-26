@@ -212,16 +212,32 @@ void lcp_space_graph_construct_from_genome(struct ref_seq *seqs, FILE *out) {
 		struct lcmer_t lcl = {0};
 		
 		//while(core_i < seqs->chrs[ch_i].cores_size && fill < BUFFER_SIZE){
-		while(core_i >= 0 && fill < BUFFER_SIZE){
-			size_t *count = counter_safe_get( counter_dict, seqs->chrs[ch_i].cores[core_i].id);
-			if(*count >= MIN_REQUIRED_CORE_COUNT){
-				lcl.data[fill] = seqs->chrs[ch_i].cores[core_i].id;
-				++fill;
-//				lcmer_push_back(lcl, seqs->chrs[ch_i].cores[core_i].id);
+		if(0) { // reversed
+			while(core_i >= 0 && fill < BUFFER_SIZE){
+				size_t *count = counter_safe_get( counter_dict, seqs->chrs[ch_i].cores[core_i].id);
+				if(*count >= MIN_REQUIRED_CORE_COUNT){
+					lcl.data[fill] = seqs->chrs[ch_i].cores[core_i].id;
+					++fill;
+	//				lcmer_push_back(lcl, seqs->chrs[ch_i].cores[core_i].id);
 
-				//hashrb_put( &rb, seqs->chrs[ch_i].cores[core_i].id);
+					//hashrb_put( &rb, seqs->chrs[ch_i].cores[core_i].id);
+				}
+				--core_i;
 			}
-			--core_i;
+		}
+		else{
+			while(core_i < seqs->chrs[ch_i].cores_size && fill < BUFFER_SIZE){
+				size_t *count = counter_safe_get( counter_dict, seqs->chrs[ch_i].cores[core_i].id);
+				if(*count >= MIN_REQUIRED_CORE_COUNT){
+					lcl.data[fill] = seqs->chrs[ch_i].cores[core_i].id;
+					++fill;
+	//				lcmer_push_back(lcl, seqs->chrs[ch_i].cores[core_i].id);
+
+					//hashrb_put( &rb, seqs->chrs[ch_i].cores[core_i].id);
+				}
+				++core_i;
+			}
+
 		}
 		for(int i = 0; i < BUFFER_SIZE/2;++i){
 			int tmp = lcl.data[i];
@@ -229,7 +245,10 @@ void lcp_space_graph_construct_from_genome(struct ref_seq *seqs, FILE *out) {
 			lcl.data[BUFFER_SIZE-1-i] = tmp;
 		}
 		uint64_t prev = 0;
-		for(core_i = 0; core_i < seqs->chrs[ch_i].cores_size; ++core_i){
+		if(0){//reversed
+		      core_i = 0;
+		}
+		for(; core_i < seqs->chrs[ch_i].cores_size; ++core_i){
 			size_t *count = counter_safe_get( counter_dict, seqs->chrs[ch_i].cores[core_i].id);
 			if(*count >= MIN_REQUIRED_CORE_COUNT){
 
@@ -248,6 +267,9 @@ void lcp_space_graph_construct_from_genome(struct ref_seq *seqs, FILE *out) {
 				if(dbg_adj_size(*rad) == 1 && array_core_locs_size(*dbg_adj_safe_get(*rad, core_in))== 1){
 					fprintf(out, "S\t");
 					fprintf(out, "%lu", hv);
+					for(int i = 0; i < BUFFER_SIZE; ++i){
+						fprintf(out, "-%lu", lcl.data[i]);
+					}
 					fprintf(out, "\t*\tRC:i:%d\n", ch_i);
 				}
 				if(prev!=0){
