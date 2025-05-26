@@ -1,25 +1,22 @@
-#ifndef _RING_BUFFER_H_
-#define _RING_BUFFER_H_
+#ifndef __RING_BUFFER_H__
+#define __RING_BUFFER_H__
 
-
-#define DEFINE_HASHED_RING_BUFFER(NAME, HASH_COUNT, BUFFER_SIZE, H1, H2) \
-typedef uint64_t(*NAME##_hashfunc)(uint64_t);\
+#define DEFINE_HASHED_RING_BUFFER(NAME, HASH_COUNT, BUFFER_SIZE, H1, H2, TYPE) \
+typedef uint64_t(*NAME##_hashfunc)(TYPE);\
 typedef struct {\
     int writeIndex;\
     int readIndex;\
-    uint64_t hashes[HASH_COUNT];\
     NAME##_hashfunc hf[2];\
-    int data[BUFFER_SIZE+1];\
-} NAME;\
-int NAME##_put(NAME *buf, uint64_t value){\
+    TYPE data[BUFFER_SIZE+1];\
+    uint8_t visited;\
+} NAME##_t;\
+TYPE NAME##_put(NAME##_t *buf, TYPE value){\
     if(buf->hf[0] == NULL){\
         buf->writeIndex = 0;\
         buf->readIndex =0;\
         buf->hf[0] = &H1;\
         buf->hf[1] = &H2;\
-        for(int i = 0; i < HASH_COUNT; ++i){\
-            buf->hashes[i] = 0;\
-        }\
+        buf->visited = 0;\
         for(int i = 0; i < BUFFER_SIZE+1; ++i){\
             buf->data[i] = 0;\
         }\
@@ -28,25 +25,19 @@ int NAME##_put(NAME *buf, uint64_t value){\
         return 1;\
     }\
     buf->data[buf->writeIndex] = value;\
-    for(int i = 0; i < HASH_COUNT; ++i){\
-    	    buf->hashes[i] = (buf->hashes[i] << (i>0?(64/BUFFER_SIZE):0)) ^ (buf->hf[0](value) + i * buf->hf[1](value));\
-    }\
     buf->writeIndex = (buf->writeIndex + 1) % (1+BUFFER_SIZE);\
     return 0;\
 }\
-int NAME##_get(NAME *buf, uint64_t *value){\
+TYPE NAME##_get(NAME##_t *buf, TYPE *value){\
     if (buf->readIndex == buf->writeIndex){\
         return 1;\
     }\
     *value = buf->data[buf->readIndex];\
-    for(int i = 0; i < 1; ++i){ /* ReXOR the leavng element because it is not shifted out*/\
-        buf->hashes[i] = (buf->hashes[i]) ^ (buf->hf[0](*value) + i * buf->hf[1](*value));\
-    }\
     buf->readIndex = (buf->readIndex + 1) % (BUFFER_SIZE+1);\
     return 0;\
 }\
-uint64_t NAME##_getput(NAME *buf, uint64_t value){\
-	uint64_t retval = 0;\
+TYPE NAME##_getput(NAME##_t *buf, TYPE value){\
+	TYPE retval = 0;\
 	if(NAME##_get(buf, &retval)){\
 		fprintf(stderr, "Cannot get!\n");\
 	}\
@@ -55,11 +46,35 @@ uint64_t NAME##_getput(NAME *buf, uint64_t value){\
 	}\
 	return retval;\
 }\
-uint64_t NAME##_rehash(NAME *buf){\
+uint64_t NAME##_rehash(NAME##_t *buf){\
 	uint64_t rethash = 0;\
 	for(int i = 0; i != BUFFER_SIZE - 1; ++i){\
 		rethash ^= H2(buf->data[i]);\
 	}\
 	return rethash;\
+}\
+uint64_t NAME##_rehash2(NAME##_t buf){\
+	uint64_t rethash = 0;\
+	for(int i = buf.writeIndex; i != BUFFER_SIZE; ++i){\
+		rethash = hash_combine(rethash, H1(buf.data[i]) ^ H2(buf.data[i]));\
+	}\
+	for(int i = 0; i != buf.writeIndex; ++i){\
+		rethash = hash_combine(rethash, H1(buf.data[i]) ^ H2(buf.data[i]));\
+	}\
+	return rethash;\
+}\
+int NAME##_cmp(NAME##_t a, NAME##_t b){\
+	int bp = b.writeIndex;\
+	return 0;\
+}\
+bool NAME##_eq(NAME##_t a, NAME##_t b){\
+	return NAME##_cmp(a,b) == 0;\
+}\
+void NAME##_print(FILE *out, char sep, NAME##_t *a){\
+	fprintf(out, "%lu", a->data[a->writeIndex]);\
+	for(int i = a->writeIndex; i != a->readIndex; ++i){\
+		if(i > BUFFER_SIZE){if(a->readIndex==0){break;}i=0;}\
+		fprintf(out, "%c%lu",sep,a->data[i]);\
+	}\
 }
-#endif
+#endif 
