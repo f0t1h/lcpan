@@ -247,6 +247,27 @@ void lbdg_process_chrom(char *sequence, uint64_t seq_size, int lcp_level, struct
     }
 }
 
+void compress_homopolymers(char *seq, int *seq_size){
+
+	char *left = seq;
+	char *right = seq;
+	
+	while (*right != 0){
+		while(*right != 0 && *right == *left){
+			++right;
+		}
+		*left = *(right-1);
+		++left;
+		*left = *right;
+		++right;
+	}
+	
+	*left = *(right-1);
+	++left;
+	*left=0;
+	*seq_size=left-seq;
+}	
+
 void read_fasta(struct opt_arg *args, struct ref_seq *seqs) {
 
     printf("[INFO] Processing reference...\n");
@@ -324,7 +345,6 @@ void read_fasta(struct opt_arg *args, struct ref_seq *seqs) {
 
     // process reference file
     while (fgets(line, line_size, ref)) {
-
         line[strcspn(line, "\n")] = '\0';
 
         if (line[0] == '>') {
@@ -332,8 +352,12 @@ void read_fasta(struct opt_arg *args, struct ref_seq *seqs) {
                 if (args->program == VG || args->program == VGX) {
                     vgx_process_chrom(seqs->chrs[index].seq, sequence_size, args->lcp_level, args->skip_masked, &(seqs->chrs[index]), &(args->core_id_index));
                 } else if (args->program == LBDG) {
+			compress_homopolymers(seqs->chrs[index].seq, &seqs->chrs[index].seq_size);
                     lbdg_process_chrom(seqs->chrs[index].seq, sequence_size, args->lcp_level, &(seqs->chrs[index]));
                 }
+		else if (args->program == COMPRESS_HOMOPOLYMER){
+			compress_homopolymers(seqs->chrs[index].seq, &seqs->chrs[index].seq_size);
+		}
                 sequence_size = 0;
                 index++;
             }
@@ -350,6 +374,9 @@ void read_fasta(struct opt_arg *args, struct ref_seq *seqs) {
         } else if (args->program == LBDG) {
             lbdg_process_chrom(seqs->chrs[index].seq, sequence_size, args->lcp_level, &(seqs->chrs[index]));
         }
+	else if (args->program == COMPRESS_HOMOPOLYMER){
+		compress_homopolymers(seqs->chrs[index].seq, &seqs->chrs[index].seq_size);
+	}
         index++;
     }
 

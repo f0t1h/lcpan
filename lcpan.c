@@ -21,6 +21,7 @@
 #include "vg.h"
 #include "vgx.h"
 #include "lbdg.h"
+#include "lcpspace.h"
 
 int main(int argc, char* argv[]) {
 
@@ -61,9 +62,14 @@ int main(int argc, char* argv[]) {
             fprintf(stderr, "Couldn't open output file %s\n", args.gfa_path);
             exit(EXIT_FAILURE);
         }
-        lbdg_print_ref_seq(&seqs, gfa_out);
+        lcp_space_graph_construct_from_genome(&seqs, gfa_out);
         fclose(gfa_out);
         break;
+    case COMPRESS_HOMOPOLYMER:
+	for(int i = 0; i < seqs.size; ++i){
+		printf(">%s\n%s\n", seqs.chrs[i].seq_name, seqs.chrs[i].seq);
+	}
+    	break;
     default:
         fprintf(stderr, "Invalid program mode provided.\n");
     }

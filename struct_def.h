@@ -10,7 +10,8 @@
 typedef enum {
     VG,
     VGX,
-    LBDG
+    LBDG,
+    COMPRESS_HOMOPOLYMER
 } program_mode;
 
 struct opt_arg {

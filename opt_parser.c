@@ -66,7 +66,15 @@ void parse_opts(int argc, char* argv[], struct opt_arg *args) {
         exit(EXIT_FAILURE);
     }
 
-    if (strcmp(argv[1], "-vg") == 0) {
+
+    if (strcmp(argv[1], "-ch") == 0) {
+        if (argc<4) {
+            fprintf(stderr, "Format: ./lcpan -ch -r ref.fa  [OPTIONS]\n");
+            exit(EXIT_FAILURE);
+        }
+        args->program = COMPRESS_HOMOPOLYMER;
+    }
+    else if (strcmp(argv[1], "-vg") == 0) {
         if (argc<6) {
             fprintf(stderr, "Format: ./lcpan -vg -r ref.fa -v var.vcf [OPTIONS]\n");
             exit(EXIT_FAILURE);
