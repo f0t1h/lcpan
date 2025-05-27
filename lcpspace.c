@@ -4,7 +4,7 @@
 #include "m-bptree.h"
 #include "m-array.h"
 #include "m-list.h"
-
+#include <time.h>
 uint64_t hash_combine(uint64_t seed, uint64_t val){
     seed ^= val + 0x9e3779b9 + (seed << 6) + (seed >> 2);
     return seed;
@@ -100,7 +100,7 @@ uint64_t MurmurHash3_int(uint64_t val){
 }
 
 #define HASH_COUNT 2
-#define BUFFER_SIZE 14
+#define BUFFER_SIZE 9
 //DEFINE_HASHED_RING_BUFFER(hashrb, HASH_COUNT, BUFFER_SIZE, FNVHashInt, MurmurHash3_int, uint64_t) 
 
 struct core_loc {
@@ -123,7 +123,8 @@ uint64_t lcmer_hash(struct lcmer_t *l){
 //ARRAY_DEF(lcmer, uint64_t)
 ARRAY_DEF(array_core_locs, struct core_loc, M_POD_OPLIST)
 #define M_OPL_array_core_locs  ARRAY_OPLIST(array_core_locs, M_POD_OPLIST)
-BPTREE_DEF2(dbg_adj, 4, uint64_t, M_BASIC_OPLIST, array_core_locs_t, M_OPL_array_core_locs)
+//BPTREE_DEF2(dbg_adj, 4, uint64_t, M_BASIC_OPLIST, array_core_locs_t, M_OPL_array_core_locs)
+BPTREE_DEF(dbg_adj, 4, uint64_t, M_BASIC_OPLIST)
 #define M_OPL_dbg_adj  BPTREE_OPLIST2(dbg_adj, M_BASIC_OPLIST, M_OPL_array_core_locs)
 
 //BPTREE_DEF2(debruin, 4, hashrb_t, M_OPEXTEND(M_POD_OPLIST, HASH(hashrb_rehash2), EQUAL(hashrb_eq), CMP(hashrb_cmp)), dbg_adj_t, M_OPL_dbg_adj)
@@ -152,6 +153,7 @@ void lcmer_shift_left(struct lcmer_t *l){
 		l->data[i]=l->data[i+1];
 	}
 }
+/*
 void dfs_step(debruin_t *r, dbg_adj_t *adj, lcmer_counter_t *c, struct lcmer_t *lc, FILE *out, uint64_t prev_hash){
 
 	size_t *visited = lcmer_counter_safe_get(*c, *lc);
@@ -183,11 +185,14 @@ void dfs(debruin_t *r, lcmer_counter_t *c, FILE *out){
 	}
 
 }
-
+*/
 void lcp_space_graph_construct_from_genome(struct ref_seq *seqs, FILE *out) {
 
 //	hashrb_t rb = {0};
-	
+	clock_t start = clock(), diff;
+	int msec;
+
+
 	counter_t counter_dict;
 	counter_init(counter_dict);
 
@@ -197,6 +202,9 @@ void lcp_space_graph_construct_from_genome(struct ref_seq *seqs, FILE *out) {
 	debruin_t right_dbg;
 	debruin_init(right_dbg);
 
+
+
+
 	for(int ch_i = 0; ch_i < seqs->size; ++ch_i){
 		int core_i;
 		for(core_i = 0; core_i < seqs->chrs[ch_i].cores_size; ++core_i){
@@ -205,7 +213,10 @@ void lcp_space_graph_construct_from_genome(struct ref_seq *seqs, FILE *out) {
 		}
 
 	}
-
+	diff = clock() - start;
+	msec = diff * 1000 / CLOCKS_PER_SEC;
+	printf("Core counting took %d seconds %d milliseconds\n", msec/1000, msec%1000);	
+	start = clock();
 	for(int ch_i = 0; ch_i < seqs->size; ++ch_i){
 		int core_i = 0;
 		if(0) core_i = seqs->chrs[ch_i].cores_size;
@@ -264,9 +275,9 @@ void lcp_space_graph_construct_from_genome(struct ref_seq *seqs, FILE *out) {
 					fprintf(stderr, "Cannot get %lu\n", hv); 
 					continue;
 				}
-				array_core_locs_push_back(*dbg_adj_safe_get(*rad, core_in), cl);
-
-				if(dbg_adj_size(*rad) == 1 && array_core_locs_size(*dbg_adj_safe_get(*rad, core_in))== 1){
+//				array_core_locs_push_back(*dbg_adj_safe_get(*rad, core_in), cl);
+				dbg_adj_push(*rad, core_in);
+				if(dbg_adj_size(*rad) == 1){// && array_core_locs_size(*dbg_adj_safe_get(*rad, core_in))== 1){
 					fprintf(out, "S\t");
 					fprintf(out, "%lu", hv);
 					//for(int i = 0; i < BUFFER_SIZE; ++i){
@@ -287,10 +298,19 @@ void lcp_space_graph_construct_from_genome(struct ref_seq *seqs, FILE *out) {
 		}
 	}
 
+	diff = clock() - start;
+	msec = diff * 1000 / CLOCKS_PER_SEC;
+	printf("Graph building took %d seconds %d milliseconds\n", msec/1000, msec%1000);	
+/*
+	start = clock();
 	lcmer_counter_t cd;
 	lcmer_counter_init(cd);
 	dfs(&right_dbg, &cd, out);
 
+	diff = clock() - start;
+	msec = diff * 1000 / CLOCKS_PER_SEC;
+	printf("DFS took %d seconds %d milliseconds\n", msec/1000, msec%1000);	
+*/
 	counter_clear(counter_dict);
 	debruin_clear(right_dbg);
 	debruin_clear(left_dbg);
