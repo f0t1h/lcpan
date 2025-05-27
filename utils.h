@@ -13,6 +13,14 @@
 
 #define SV_LEN_BOUNDARY 50
 
+
+#ifndef BUFFER_SIZE
+#define BUFFER_SIZE 1024
+#endif
+extern char *strtok_r(char *, const char *, char **);
+
+
+
 /**
  * Performs binary search on a sorted array to find the index of a given key.
  *
