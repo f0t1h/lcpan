@@ -207,7 +207,8 @@ void lcp_space_graph_construct_from_genome(struct ref_seq *seqs, FILE *out) {
 	}
 
 	for(int ch_i = 0; ch_i < seqs->size; ++ch_i){
-		int core_i = seqs->chrs[ch_i].cores_size;
+		int core_i = 0;
+		if(0) core_i = seqs->chrs[ch_i].cores_size;
 		int fill = 0;
 		struct lcmer_t lcl = {0};
 		
@@ -239,13 +240,14 @@ void lcp_space_graph_construct_from_genome(struct ref_seq *seqs, FILE *out) {
 			}
 
 		}
-		for(int i = 0; i < BUFFER_SIZE/2;++i){
-			int tmp = lcl.data[i];
-			lcl.data[i] = lcl.data[BUFFER_SIZE-1-i];
-			lcl.data[BUFFER_SIZE-1-i] = tmp;
-		}
+
 		uint64_t prev = 0;
 		if(0){//reversed
+			for(int i = 0; i < BUFFER_SIZE/2;++i){
+				int tmp = lcl.data[i];
+				lcl.data[i] = lcl.data[BUFFER_SIZE-1-i];
+				lcl.data[BUFFER_SIZE-1-i] = tmp;
+			}
 		      core_i = 0;
 		}
 		for(; core_i < seqs->chrs[ch_i].cores_size; ++core_i){
@@ -267,10 +269,10 @@ void lcp_space_graph_construct_from_genome(struct ref_seq *seqs, FILE *out) {
 				if(dbg_adj_size(*rad) == 1 && array_core_locs_size(*dbg_adj_safe_get(*rad, core_in))== 1){
 					fprintf(out, "S\t");
 					fprintf(out, "%lu", hv);
-					for(int i = 0; i < BUFFER_SIZE; ++i){
-						fprintf(out, "-%lu", lcl.data[i]);
-					}
-					fprintf(out, "\t*\tRC:i:%d\n", ch_i);
+					//for(int i = 0; i < BUFFER_SIZE; ++i){
+					//	fprintf(out, "-%lu", lcl.data[i]);
+					//}
+					fprintf(out, "\t*\tRC:i:%d\tLN:i:%lu\n", ch_i, BUFFER_SIZE * (sc.end - sc.start));
 				}
 				if(prev!=0){
 					fprintf(out, "L\t%lu\t+\t%lu\t+\t*\tID:Z:%d\n", prev, hv, ch_i);
