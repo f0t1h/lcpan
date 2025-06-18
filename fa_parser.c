@@ -1,4 +1,6 @@
 #include "fa_parser.h"
+#include "lps_sparse_addon.h"
+
 
 uint64_t MurmurHash3_32(const void *key, int len) {
     const uint8_t *data = (const uint8_t *)key;

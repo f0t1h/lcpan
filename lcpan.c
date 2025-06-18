@@ -32,7 +32,7 @@ int main(int argc, char* argv[]) {
 
     struct ref_seq seqs; // sequence processed from fasta file
 
-    read_fasta(&args, &seqs);
+//    read_fasta(&args, &seqs);
 
     FILE *gfa_out;
 
@@ -62,7 +62,7 @@ int main(int argc, char* argv[]) {
             fprintf(stderr, "Couldn't open output file %s\n", args.gfa_path);
             exit(EXIT_FAILURE);
         }
-        lspag_print_ref_seq(&seqs, gfa_out);
+        lspag_print_ref_seq(&args, gfa_out);
         fclose(gfa_out);
         break;
     default:
@@ -70,7 +70,7 @@ int main(int argc, char* argv[]) {
     }
     
     free_opt_arg(&args);
-    free_ref_seq(&seqs);
+//    free_ref_seq(&seqs);
 
     return 0;
 }

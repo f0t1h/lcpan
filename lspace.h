@@ -19,7 +19,7 @@
  * @param out        A file pointer to the output file where the formatted segments
  *                   and links will be written.
  */
-void lspag_print_ref_seq(struct ref_seq *seqs, FILE *out);
+void lspag_print_ref_seq(struct opt_arg *seqs, FILE *out);
 
 #endif
 

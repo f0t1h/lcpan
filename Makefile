@@ -7,7 +7,10 @@ OBJS := $(SRCS:.c=.o)
 CURRENT_DIR := $(shell pwd)
 
 GXX ?= gcc
-CXXFLAGS = -O3 -Wall -Wextra -Wpedantic -march=native -ftree-vectorize
+CXXFLAGS = -O3 -g -Wall -Wextra -Wpedantic -march=native -ftree-vectorize -lz 
+ifeq (${GXX},g++)
+CXXFLAGS := ${CXXFLAGS} -std=c++23
+endif
 
 # object files that need lcptools
 LCPTOOLS_CXXFLAGS := -I$(CURRENT_DIR)/lcptools/include
