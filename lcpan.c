@@ -21,6 +21,7 @@
 #include "vg.h"
 #include "vgx.h"
 #include "lbdg.h"
+#include "lspace.h"
 
 int main(int argc, char* argv[]) {
 
@@ -61,7 +62,7 @@ int main(int argc, char* argv[]) {
             fprintf(stderr, "Couldn't open output file %s\n", args.gfa_path);
             exit(EXIT_FAILURE);
         }
-        lbdg_print_ref_seq(&seqs, gfa_out);
+        lspag_print_ref_seq(&seqs, gfa_out);
         fclose(gfa_out);
         break;
     default:

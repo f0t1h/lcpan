@@ -198,7 +198,26 @@ void vgx_process_chrom(char *sequence, uint64_t seq_size, int lcp_level, int ski
 
     *core_id_index = id;
 }
+void compress_homopolymers(char *seq, uint64_t *seq_size){
 
+	char *left = seq;
+	char *right = seq;
+	
+	while (*right != 0){
+		while(*right != 0 && *right == *left){
+			++right;
+		}
+		*left = *(right-1);
+		++left;
+		*left = *right;
+		++right;
+	}
+	
+	*left = *(right-1);
+	++left;
+	*left=0;
+	*seq_size=left-seq;
+}	
 void lbdg_process_chrom(char *sequence, uint64_t seq_size, int lcp_level, struct chr *chrom) {
     uint64_t estimated_core_size = (int)(seq_size / pow(1.5, lcp_level));
     chrom->cores_size = 0;
@@ -212,6 +231,7 @@ void lbdg_process_chrom(char *sequence, uint64_t seq_size, int lcp_level, struct
 
     uint64_t index = 0;
     uint64_t last_core_index = 0;
+    compress_homopolymers(sequence, &seq_size);       
 
     while (index < seq_size) {
         while (index < seq_size && sequence[index] == 'N') {
@@ -224,7 +244,7 @@ void lbdg_process_chrom(char *sequence, uint64_t seq_size, int lcp_level, struct
         }
 
         struct lps str;
-        init_lps_offset(&str, sequence+index, end-index, index);
+        init_sparse_lps_offset(&str, sequence+index, end-index, index);
         lps_deepen(&str, lcp_level);
 
         for (int i=0; i<str.size; i++) {
