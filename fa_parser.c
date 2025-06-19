@@ -250,7 +250,8 @@ void lbdg_process_chrom(char *sequence, uint64_t seq_size, int lcp_level, struct
         lps_deepen(&str, lcp_level);
 
         for (int i=0; i<str.size; i++) {
-            chrom->cores[last_core_index].id = (MurmurHash3_32(sequence + str.cores[i].start, (int)(str.cores[i].end-str.cores[i].start)) << 32) | str.cores[i].label;
+            chrom->cores[last_core_index].id =  str.cores[i].label;
+//                (MurmurHash3_32(sequence + str.cores[i].start, (int)(str.cores[i].end-str.cores[i].start)) << 32) | str.cores[i].label;
             chrom->cores[last_core_index].start = str.cores[i].start;
             chrom->cores[last_core_index].end = str.cores[i].end;
             last_core_index++;

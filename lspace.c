@@ -108,10 +108,11 @@ void lspag_print_ref_seq(struct opt_arg *args, FILE *out) {
     fp = gzopen(args->fasta_path, "r");
     seq = kseq_init(fp);
     size_t idx = 0;
+    lcmer l;
     while(kseq_read(seq) >= 0){
         struct chr chrom = {seq->name.s, idx++, (int) seq->seq.l, seq->seq.s, 0, 0, 0};
         lbdg_process_chrom(seq->seq.s, seq->seq.l, args->lcp_level, &chrom);
-        lcmer l;
+
         struct simple_core *cores = chrom.cores;
         if (chrom.cores_size < LCMER_SIZE + 2){
             continue;
@@ -124,6 +125,7 @@ void lspag_print_ref_seq(struct opt_arg *args, FILE *out) {
             l = update_lcmer(l, cores[j].id);
         }
         dbg[l];
+        free(chrom.cores);
     }
     kseq_destroy(seq);
 

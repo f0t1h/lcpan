@@ -215,7 +215,7 @@ void parse_opts(int argc, char* argv[], struct opt_arg *args) {
     sprintf(fai_path, "%s.fai", args->fasta_path);
     args->fasta_fai_path = fai_path;
     
-    validate_file(args->fasta_fai_path, "fai");
+//    validate_file(args->fasta_fai_path, "fai");
 
     if (args->prefix == NULL) {
         args->gfa_path = strdup(args->is_rgfa ? "lcpan.rgfa" : "lcpan.gfa");
