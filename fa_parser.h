@@ -8,6 +8,9 @@
 #include <string.h>
 #include <math.h>
 
+
+uint64_t MurmurHash3_32(const void *key, int len);
+
 /**
  * @brief Frees memory allocated for the ref_seq structure.
  *
