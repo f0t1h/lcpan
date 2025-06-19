@@ -200,26 +200,22 @@ void vgx_process_chrom(char *sequence, uint64_t seq_size, int lcp_level, int ski
 
     *core_id_index = id;
 }
-void compress_homopolymers(char *seq, uint64_t *seq_size){
 
-	char *left = seq;
-	char *right = seq;
-	
-	while (*right != 0){
-		while(*right != 0 && *right == *left){
-			++right;
-		}
-		*left = *(right-1);
-		++left;
-		*left = *right;
-		++right;
-	}
-	
-	*left = *(right-1);
-	++left;
-	*left=0;
-	*seq_size=left-seq;
-}	
+void compress_homopolymers(char* input, size_t* length) {
+    if (input == NULL || length == NULL || *length == 0) return;
+
+    size_t write_idx = 1;
+
+    for (size_t read_idx = 1; read_idx < *length; ++read_idx) {
+        if (input[read_idx] != input[read_idx - 1]) {
+            input[write_idx++] = input[read_idx];
+        }
+    }
+
+    input[write_idx] = '\0';
+    *length = write_idx;  
+}
+
 void lbdg_process_chrom(char *sequence, uint64_t seq_size, int lcp_level, struct chr *chrom) {
     uint64_t estimated_core_size = (int)(seq_size / pow(1.5, lcp_level));
     chrom->cores_size = 0;

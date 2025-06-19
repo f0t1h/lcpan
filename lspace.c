@@ -110,17 +110,17 @@ void lspag_print_ref_seq(struct opt_arg *args, FILE *out) {
     size_t idx = 0;
     lcmer l;
     while(kseq_read(seq) >= 0){
-        struct chr chrom = {seq->name.s, idx++, (int) seq->seq.l, seq->seq.s, 0, 0, 0};
+        struct chr chrom = COLITERAL(chr){seq->name.s, idx++, (int) seq->seq.l, seq->seq.s, 0, 0, 0};
         lbdg_process_chrom(seq->seq.s, seq->seq.l, args->lcp_level, &chrom);
 
         struct simple_core *cores = chrom.cores;
         if (chrom.cores_size < LCMER_SIZE + 2){
             continue;
         }
-        for(int j = 1; j < LCMER_SIZE + 1; ++j){
+        for(int j = 1; j <= LCMER_SIZE; ++j){
             l.data.ar[j-1] = cores[j].id;   
         }
-        for (int j=LCMER_SIZE+1; j<chrom.cores_size - 1; j++) {
+        for (int j=LCMER_SIZE+1; j<chrom.cores_size-1; j++) {
             dbg[l].push_back(cores[j].id);
             l = update_lcmer(l, cores[j].id);
         }
@@ -130,24 +130,7 @@ void lspag_print_ref_seq(struct opt_arg *args, FILE *out) {
     kseq_destroy(seq);
 
     gzclose(fp);
-    /*
-    for (int i=0; i<seqs->size; i++) {
-        struct chr &chrom = seqs->chrs[i];
-		lcmer l;
-        struct simple_core *cores = chrom.cores;
-        if (chrom.cores_size < LCMER_SIZE + 2){
-            continue;
-        }
-        for(int j = 1; j < LCMER_SIZE + 1; ++j){
-            l.data.ar[j-1] = cores[j].id;   
-        }
-        for (int j=LCMER_SIZE+1; j<chrom.cores_size - 1; j++) {
-            dbg[l].push_back(cores[j].id);
-            l = update_lcmer(l, cores[j].id);
-        }
-        dbg[l];
-	}
-    */
+
     TIME_CHECKPOINT(LSPACETIME, "Built DBG %d sec %d ms\n");
     for(const auto &p : dbg){
         fprintf(out,"S\t");
@@ -166,6 +149,5 @@ void lspag_print_ref_seq(struct opt_arg *args, FILE *out) {
         }
     }
     TIME_CHECKPOINT(LSPACETIME, "Printed DBG %d sec %d ms\n");
-
 }
 
