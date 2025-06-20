@@ -32,12 +32,27 @@ int parse1_sparse(const char *begin, const char *end, struct core *cores, uint64
             continue;
         }
 
+#ifdef USE_LMINS
+        if (alphabet[(unsigned char)*it1] > alphabet[(unsigned char)*(it1+1)] &&
+            alphabet[(unsigned char)*(it1+1)] < alphabet[(unsigned char)*(it1+2)]) {
+
+
+            // create LMIN core
+            it2 = it1 + 3;
+            init_core1(&(cores[core_index]), it1, it2-it1, it1-begin+offset, it2-begin+offset);
+            if(core_index == 0 || cores[core_index].bit_rep != cores[core_index-1].bit_rep){ // Skip identical adjacent cores
+                core_index++;
+            }
+            continue;
+        }
+#endif
         // check for LMAX
         if (it1+3 < end &&
             alphabet[(unsigned char)*it1] < alphabet[(unsigned char)*(it1+1)] &&
             alphabet[(unsigned char)*(it1+1)] > alphabet[(unsigned char)*(it1+2)] &&
-            alphabet[(unsigned char)*(it1-1)] <= alphabet[(unsigned char)*(it1)] &&
-            alphabet[(unsigned char)*(it1+2)] >= alphabet[(unsigned char)*(it1+3)]) {
+            alphabet[(unsigned char)*(it1-1)] <= alphabet[(unsigned char)*(it1)] 
+            && alphabet[(unsigned char)*(it1+2)] >= alphabet[(unsigned char)*(it1+3)]
+            ) {
             // create LMAX core
             it2 = it1 + 3;
             init_core1(&(cores[core_index]), it1, it2-it1, it1-begin+offset, it2-begin+offset);
