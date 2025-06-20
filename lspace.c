@@ -18,7 +18,7 @@ KSEQ_INIT(gzFile, gzread)
 #include "lbdg.h"
 
 #define MIN_REQUIRED_CORE_COUNT 2
-#define LCMER_SIZE 8
+#define LCMER_SIZE 24
 #define TIME_CHECKPOINT_INIT(NAME)               \
     clock_t NAME##_start = clock(), NAME##_diff; \
     int NAME##_msec
@@ -64,13 +64,13 @@ void lcmer_set0(lcmer &l, uint32_t new_core) {
     l.data.ar[LCMER_SIZE - 1] = new_core;
 }
 lcmer shift_lcmer(lcmer l) {
-    for (int i = 1; i < 8; ++i) {
+    for (int i = 1; i < LCMER_SIZE; ++i) {
         l.data.ar[i - 1] = l.data.ar[i];
     }
     return l;
 }
 lcmer update_lcmer(lcmer l, uint32_t new_core) {
-    for (int i = 1; i < 8; ++i) {
+    for (int i = 1; i < LCMER_SIZE; ++i) {
         l.data.ar[i - 1] = l.data.ar[i];
     }
     l.data.ar[LCMER_SIZE - 1] = new_core;
@@ -142,6 +142,7 @@ void lspag_print_ref_seq(struct opt_arg *args, FILE *out) {
         lcmer l;
         struct chr chrom = COLITERAL(chr){n, idx++, len, s, 0, 0, 0};
         lbdg_process_chrom(s, len, args->lcp_level, &chrom);
+       // printf("%d\n", chrom.cores_size);
         struct simple_core *cores = chrom.cores;
         if (chrom.cores_size < LCMER_SIZE + 2) {
             return;
@@ -158,9 +159,9 @@ void lspag_print_ref_seq(struct opt_arg *args, FILE *out) {
         free(n);
         free(s);
     };
-
-    moodycamel::BlockingConcurrentQueue<std::tuple<char *, char *, int>> bcq;
-
+    using produced_data_type = std::tuple<char *, char *, int>;
+    moodycamel::BlockingConcurrentQueue<produced_data_type> bcq;
+    moodycamel::ProducerToken pt(bcq);
     bool done;
     std::thread fqproducer([&]() {
         while (kseq_read(seq) >= 0) {
@@ -168,18 +169,26 @@ void lspag_print_ref_seq(struct opt_arg *args, FILE *out) {
             char *s = (char *)malloc(seq->seq.l + 1);
             std::strncpy(n, seq->name.s, seq->name.l + 1);
             std::strncpy(s, seq->seq.s, seq->seq.l + 1);
-            bcq.enqueue(std::make_tuple(n, s, seq->seq.l));
+            bcq.enqueue(pt, std::make_tuple(n, s, seq->seq.l));
         }
         done = true;
     });
+
     std::vector<std::thread> consumers;
+
     for (int i = 0; i < std::max(1, args->thread_number-1); ++i) {
         consumers.emplace_back([&]() {
+            moodycamel::ConsumerToken ct(bcq);
+            std::vector<produced_data_type> queried;
             while (!done || bcq.size_approx() > 0) {
                 std::tuple<char *, char *, int> item;
-                bcq.wait_dequeue(item);
-                process_seq(std::get<0>(item), std::get<1>(item),
+
+                bcq.wait_dequeue_bulk(ct, std::back_inserter(queried), 10);
+                for(const auto &item : queried)
+                    process_seq(std::get<0>(item),
+                            std::get<1>(item),
                             std::get<2>(item));
+                queried.clear();
             }
         });
     }
