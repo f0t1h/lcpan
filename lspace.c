@@ -8,17 +8,24 @@
 #include <tuple>
 #include <unordered_map>
 #include <vector>
+#include <valarray>
+    #include <atomic>
 
 #include "fa_parser.h"
 #include "include/blockingconcurrentqueue.h"
+
 #include "include/gtl/phmap.hpp"
+#include "include/gtl/vector.hpp"
+#include <stdio.h>
+
 #include "kseq.h"
 KSEQ_INIT(gzFile, gzread)
 
 #include "lbdg.h"
 
-#define MIN_REQUIRED_CORE_COUNT 2
-#define LCMER_SIZE 24
+#ifndef LCMER_SIZE
+#define LCMER_SIZE 12
+#endif
 #define TIME_CHECKPOINT_INIT(NAME)               \
     clock_t NAME##_start = clock(), NAME##_diff; \
     int NAME##_msec
@@ -30,21 +37,32 @@ KSEQ_INIT(gzFile, gzread)
         fprintf(stderr, fmt, NAME##_msec / 1000, NAME##_msec % 1000); \
         NAME##_start = clock();                                       \
     } while (0)
+
+
+
+static std::atomic<unsigned long long> thread_counter;
+
+unsigned long long thread_id() {
+    thread_local unsigned long long tid = ++thread_counter;
+    return tid;
+}
+
+template<int N>
 struct lcmer {
-    union {
-        std::array<uint32_t, LCMER_SIZE> ar;
-    } data;
+    std::array<uint32_t, N> data;
+
+    lcmer () {}
 
     bool operator==(const lcmer &other) const {
-        for (int i = 0; i < LCMER_SIZE; ++i) {
-            if (data.ar[i] != other.data.ar[i]) return false;
+        for (int i = 0; i < N; ++i) {
+            if (data[i] != other.data[i]) return false;
         }
         return true;
     }
     bool operator<(const lcmer &other) const {
-        for (int i = 0; i < LCMER_SIZE; ++i) {
-            if (data.ar[i] != other.data.ar[i]) {
-                if (data.ar[i] < other.data.ar[i]) {
+        for (int i = 0; i < N; ++i) {
+            if (data[i] != other.data[i]) {
+                if (data[i] < other.data[i]) {
                     return true;
                 } else {
                     return false;
@@ -54,36 +72,77 @@ struct lcmer {
         return false;
     }
     void print_name(FILE *out) const {
-        fprintf(out, "%0x", data.ar[0]);
-        for (int z = 1; z < LCMER_SIZE; ++z) {
-            fprintf(out, "%0x", data.ar[z]);
+        fprintf(out, "%0x", data[0]);
+        for (int z = 1; z < N; ++z) {
+            fprintf(out, "%0x", data[z]);
         }
     }
+
+
 };
-void lcmer_set0(lcmer &l, uint32_t new_core) {
-    l.data.ar[LCMER_SIZE - 1] = new_core;
+template<int N>
+void lcmer_set0(lcmer<N> &l, uint32_t new_core) {
+    l.data[N - 1] = new_core;
 }
-lcmer shift_lcmer(lcmer l) {
-    for (int i = 1; i < LCMER_SIZE; ++i) {
-        l.data.ar[i - 1] = l.data.ar[i];
+template<int N>
+lcmer<N> shift_lcmer(lcmer<N> l) {
+    for (int i = 1; i < N; ++i) {
+        l.data[i - 1] = l.data[i];
     }
     return l;
 }
-lcmer update_lcmer(lcmer l, uint32_t new_core) {
-    for (int i = 1; i < LCMER_SIZE; ++i) {
-        l.data.ar[i - 1] = l.data.ar[i];
+template<int N>
+lcmer<N> update_lcmer(lcmer<N> l, uint32_t new_core) {
+    for (int i = 1; i < N; ++i) {
+        l.data[i - 1] = l.data[i];
     }
-    l.data.ar[LCMER_SIZE - 1] = new_core;
+    l.data[N - 1] = new_core;
     return l;
 }
 
-template <>
-struct std::hash<lcmer> {
-    std::size_t operator()(const lcmer &l) const noexcept {
-        return MurmurHash3_32(&l.data.ar, LCMER_SIZE * sizeof(uint32_t));
+
+template <int N>
+struct std::hash<lcmer<N>> {
+    std::size_t operator()(const lcmer<N> &l) const noexcept {
+        return MurmurHash3_32(&l.data, N * sizeof(uint32_t));
     }
 };
 
+template<int N>
+struct lcmerp_eq{
+    inline bool operator() (const lcmer<N> *a, const lcmer<N> *b)const {
+        return *a==*b;
+    }
+};
+
+template<int N>
+struct lcmerp_hash{
+    inline bool operator() (const lcmer<N> *l)const{
+        return MurmurHash3_32(&l->data, N * sizeof(uint32_t));
+    }
+
+};
+
+template<int N>
+struct lcmerp_heq{
+    using Hash = lcmerp_hash<N>;
+    using Eq   = lcmerp_eq<N>;
+};
+
+struct lcrun{
+    std::vector<uint32_t> data;
+    template<int N>
+    lcrun(const lcmer<N> &lc) : data(std::begin(lc.data), std::end(lc.data)){}
+    void push_back(uint32_t d) {
+        data.push_back(d);
+    }
+};
+template<>
+struct std::hash<lcrun> {
+    std::size_t operator()(const lcrun &l) const noexcept {
+        return MurmurHash3_32(l.data.data(), l.data.size() * sizeof(uint32_t));
+    }
+};
 void lspag_print_ref_seq(struct opt_arg *args, FILE *out) {
     TIME_CHECKPOINT_INIT(LSPACETIME);
 
@@ -119,16 +178,18 @@ void lspag_print_ref_seq(struct opt_arg *args, FILE *out) {
        */
 
     //    std::map<lcmer, std::vector<uint32_t>> dbg;
+
     using mutex_type = std::mutex;
     using next_lcmer_set =
         gtl::parallel_flat_hash_set<uint32_t,
                                     gtl::priv::hash_default_hash<uint32_t>,
                                     gtl::priv::hash_default_eq<uint32_t>,
                                     std::allocator<uint32_t>, 4, mutex_type>;
+    using idx_and_nls = std::pair<size_t, next_lcmer_set>;
     using dbg_map = gtl::parallel_flat_hash_map<
-        lcmer, next_lcmer_set, std::hash<lcmer>,
-        gtl::priv::hash_default_eq<lcmer>,
-        std::allocator<std::pair<const lcmer, next_lcmer_set>>, 4, mutex_type>;
+        lcmer<LCMER_SIZE>, idx_and_nls, std::hash<lcmer<LCMER_SIZE>>,
+        gtl::priv::hash_default_eq<lcmer<LCMER_SIZE>>,
+        std::allocator<std::pair<const lcmer<LCMER_SIZE>, idx_and_nls>>, 4, mutex_type>;
 
     dbg_map dbg;
     gzFile fp;
@@ -138,31 +199,51 @@ void lspag_print_ref_seq(struct opt_arg *args, FILE *out) {
     seq = kseq_init(fp);
     size_t idx = 0;
 
-    auto process_seq = [&](char *n, char *s, int len) {
-        lcmer l;
+    auto process_seq = [&](char *n, char *s, int len, int tid, uint64_t lcmer_index) {
+        lcmer<LCMER_SIZE> l;
         struct chr chrom = COLITERAL(chr){n, idx++, len, s, 0, 0, 0};
         lbdg_process_chrom(s, len, args->lcp_level, &chrom);
        // printf("%d\n", chrom.cores_size);
         struct simple_core *cores = chrom.cores;
         if (chrom.cores_size < LCMER_SIZE + 2) {
-            return;
+            return lcmer_index;
         }
         for (int j = 1; j <= LCMER_SIZE; ++j) {
-            l.data.ar[j - 1] = cores[j].id;
+            l.data[j - 1] = cores[j].id;
         }
         for (int j = LCMER_SIZE + 1; j < chrom.cores_size - 1; j++) {
-            dbg[l].insert(cores[j].id);
+            dbg.lazy_emplace_l(
+                    l,
+                    [&](dbg_map::value_type &v){
+                        v.second.second.insert(cores[j].id);
+                    },
+                    [&](const dbg_map::constructor &ctor){
+                        ctor(l, std::pair(lcmer_index | tid, next_lcmer_set{}));
+                        lcmer_index+=128;
+                    }
+                    );
+//            dbg[l].insert(cores[j].id);
             l = update_lcmer(l, cores[j].id);
         }
-        dbg[l];
+
+        dbg.lazy_emplace_l(
+                l,
+                [](dbg_map::value_type &v){},
+                [&](const dbg_map::constructor &ctor){
+                    ctor(l, std::pair(lcmer_index | tid, next_lcmer_set{}));
+                    lcmer_index += 128;
+                }
+                );
+//        dbg[l];
         free(chrom.cores);
         free(n);
         free(s);
+        return lcmer_index;
     };
     using produced_data_type = std::tuple<char *, char *, int>;
     moodycamel::BlockingConcurrentQueue<produced_data_type> bcq;
     moodycamel::ProducerToken pt(bcq);
-    bool done;
+    std::atomic<bool> done;
     std::thread fqproducer([&]() {
         while (kseq_read(seq) >= 0) {
             char *n = (char *)malloc(seq->name.l + 1);
@@ -178,16 +259,22 @@ void lspag_print_ref_seq(struct opt_arg *args, FILE *out) {
 
     for (int i = 0; i < std::max(1, args->thread_number-1); ++i) {
         consumers.emplace_back([&]() {
+            unsigned int tid = thread_id();
+            printf("%d\n", tid);
+
+            uint64_t idx = 0;
             moodycamel::ConsumerToken ct(bcq);
-            std::vector<produced_data_type> queried;
+            gtl::vector<produced_data_type> queried;
             while (!done || bcq.size_approx() > 0) {
                 std::tuple<char *, char *, int> item;
 
-                bcq.wait_dequeue_bulk(ct, std::back_inserter(queried), 10);
+                bcq.wait_dequeue_bulk(ct, std::back_inserter(queried), 32);
+
                 for(const auto &item : queried)
-                    process_seq(std::get<0>(item),
+                    idx = process_seq(std::get<0>(item),
                             std::get<1>(item),
-                            std::get<2>(item));
+                            std::get<2>(item),
+                            tid, idx);
                 queried.clear();
             }
         });
@@ -208,7 +295,7 @@ void lspag_print_ref_seq(struct opt_arg *args, FILE *out) {
        continue;
        }
        for(int j = 1; j <= LCMER_SIZE; ++j){
-       l.data.ar[j-1] = cores[j].id;
+       l.data[j-1] = cores[j].id;
        }
        for (int j=LCMER_SIZE+1; j<chrom.cores_size-1; j++) {
        dbg[l].insert(cores[j].id);
@@ -219,26 +306,106 @@ void lspag_print_ref_seq(struct opt_arg *args, FILE *out) {
        }
        */
     kseq_destroy(seq);
-
     gzclose(fp);
+    
+    
 
+    
+    using lcmer_idx_map_t = gtl::parallel_flat_hash_map<
+        size_t,const lcmer<LCMER_SIZE> *>;
+    
+//    std::unordered_map<const lcmer<LCMER_SIZE> *, size_t, lcmerp_hash<LCMER_SIZE>, lcmerp_eq<LCMER_SIZE>> lim;
+    lcmer_idx_map_t lim;
+    idx=0;
     TIME_CHECKPOINT(LSPACETIME, "Built DBG %d sec %d ms\n");
     for (const auto &p : dbg) {
-        fprintf(out, "S\t");
-        p.first.print_name(out);
-        fprintf(out, "\t*\tLN:i:1000\n");
+        fprintf(out, "S\t%lu\t*\tLN:i:%d\n", p.second.first, LCMER_SIZE);
+        lim[p.second.first] = &p.first;
+ //       lim[&p.first] = idx++;
+ //       fprintf(out, "S\t");
+//        p.first.print_name(out);
+ //       fprintf(out, "\t*\tLN:i:%d\n",LCMER_SIZE);
     }
     for (const auto &p : dbg) {
         lcmer ln = shift_lcmer(p.first);
-        for (uint32_t next : p.second) {
-            fprintf(out, "L\t");
-            p.first.print_name(out);
-            fprintf(out, "\t+\t");
+  //      size_t lindex = lim.at(&p.first);
+        for (uint32_t next : p.second.second) {
             lcmer_set0(ln, next);
-            ln.print_name(out);
-            fprintf(out, "\t+\t100M\n");
+//            size_t rindex = lim.at(&ln);
+              fprintf(out,"L\t%lu\t+\t%lu\t+\t%dM\n",p.second.first,dbg[ln].first,LCMER_SIZE-1);
+  //          fprintf(out, "L\t");
+ //           p.first.print_name(out);
+//            fprintf(out, "\t+\t");
+//            ln.print_name(out);
+//            fprintf(out, "\t+\t%dM\n",LCMER_SIZE-1);
         }
     }
+    fclose(out);
+    char cmd[1024];
+    sprintf(cmd, "gfatools asm -u %s", args->gfa_path); 
+    FILE *gfatools_p = popen(cmd, "r");
+    size_t N = 0;
+    char *buffer;
+    
+    using unitig_map_t = gtl::parallel_flat_hash_map<std::string, lcrun>;
+    unitig_map_t um;
+    
+    using unitig_adj_t = gtl::parallel_flat_hash_map<std::string, gtl::vector<std::string>>;
+    unitig_adj_t ua;
+
+    using lcmer_2_unitig_pos_t = gtl::parallel_flat_hash_map<
+        const lcmer<LCMER_SIZE> *, std::pair<std::string, size_t>,
+        lcmerp_hash<LCMER_SIZE>,
+        lcmerp_eq<LCMER_SIZE>,
+        std::allocator<std::pair<const lcmer<LCMER_SIZE> *,std::pair<std::string, size_t>>>, 4>;
+    lcmer_2_unitig_pos_t  find_unitigs;
+
+    while(getline(&buffer, &N, gfatools_p)!=-1){
+        char *token = strtok(buffer, "\t");
+        switch(*token){
+        case 'S':
+            break;
+        case 'A':{
+            token = strtok(NULL,"\t");
+            strtok(NULL,"\t");
+            std::string uid{token};
+            strtok(NULL,"\t");
+            token = strtok(NULL,"\t");
+            const lcmer<LCMER_SIZE> *l = lim.at(atoi(token));
+            um.lazy_emplace_l(
+                    uid,
+                    [&](unitig_map_t::value_type &v){
+//                        find_unitigs.try_emplace(l, uid, v.second.data.size());
+                        v.second.push_back(l->data[LCMER_SIZE-1]);
+
+                    },
+                    [&](const unitig_map_t::constructor &ctor){
+                        ctor(uid, *l);
+                    }
+            );
+                 }
+            break;
+        case 'L':{//TODO Implement orientation logic
+            token = strtok(NULL,"\t");
+            std::string left {token};
+            token = strtok(NULL,"\t");
+            token = strtok(NULL,"\t");
+            std::string right {token};
+            ua[left].push_back(right);
+            break;
+            }
+        default:
+            fprintf(stderr, "Unknown type %c\n", *token);
+        }
+    }
+    for(const auto &p : um){
+        printf("%s\t%lu\n", p.first.c_str(), p.second.data.size());
+    }
+    //TODO Using longer lcmer to resolve ambiguity
+    //TODO iterate reads, replace the cores with sequences using the idx
+
+    fclose(gfatools_p);
+    free(buffer);
     TIME_CHECKPOINT(LSPACETIME, "Printed DBG %d sec %d ms\n");
 }
 

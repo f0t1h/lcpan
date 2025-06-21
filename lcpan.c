@@ -63,7 +63,7 @@ int main(int argc, char* argv[]) {
             exit(EXIT_FAILURE);
         }
         lspag_print_ref_seq(&args, gfa_out);
-        fclose(gfa_out);
+//        fclose(gfa_out);
         break;
     default:
         fprintf(stderr, "Invalid program mode provided.\n");

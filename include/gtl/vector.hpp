@@ -39,7 +39,7 @@
 #include <type_traits>
 #include <utility>
 
-#include <gtl/utils.hpp>
+#include "utils.hpp"
 
 //=========================== likely ========================================
 #undef LIKELY
