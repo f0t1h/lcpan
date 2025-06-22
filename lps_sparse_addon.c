@@ -31,18 +31,26 @@ int parse1_sparse(const char *begin, const char *end, struct core *cores, uint64
         if (begin == it1) {
             continue;
         }
-
-#ifdef USE_LMINS
+#ifndef USE_LMINS
+#define USE_LMINS 0
+#endif
+#ifndef KEEP_LMIN_CORES
+#define KEEP_LMIN_CORES 1
+#endif
+#if USE_LMINS
         if (alphabet[(unsigned char)*it1] > alphabet[(unsigned char)*(it1+1)] &&
             alphabet[(unsigned char)*(it1+1)] < alphabet[(unsigned char)*(it1+2)]) {
 
 
+
             // create LMIN core
             it2 = it1 + 3;
+#if KEEP_LMIN_CORES
             init_core1(&(cores[core_index]), it1, it2-it1, it1-begin+offset, it2-begin+offset);
             if(core_index == 0 || cores[core_index].bit_rep != cores[core_index-1].bit_rep){ // Skip identical adjacent cores
                 core_index++;
             }
+#endif
             continue;
         }
 #endif
@@ -56,9 +64,9 @@ int parse1_sparse(const char *begin, const char *end, struct core *cores, uint64
             // create LMAX core
             it2 = it1 + 3;
             init_core1(&(cores[core_index]), it1, it2-it1, it1-begin+offset, it2-begin+offset);
-            if(core_index == 0 || cores[core_index].bit_rep != cores[core_index-1].bit_rep){ // Skip identical adjacent cores
-                core_index++;
-            }
+            //if(core_index == 0 || cores[core_index].bit_rep != cores[core_index-1].bit_rep){ // Skip identical adjacent cores
+            core_index++;
+            //}
 
             continue;
         }

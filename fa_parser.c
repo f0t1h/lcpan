@@ -229,8 +229,9 @@ void lbdg_process_chrom(char *sequence, uint64_t seq_size, int lcp_level, struct
 
     uint64_t index = 0;
     uint64_t last_core_index = 0;
+#ifdef COMPRESS_HOMOPOLYMERS
     compress_homopolymers(sequence, &seq_size);       
-
+#endif
     while (index < seq_size) {
         while (index < seq_size && sequence[index] == 'N') {
             index++;

@@ -6,11 +6,9 @@
 #include <map>
 #include <thread>
 #include <tuple>
-#include <unordered_map>
-#include <vector>
-#include <valarray>
-    #include <atomic>
+#include <utility>
 
+#include <atomic>
 #include "fa_parser.h"
 #include "include/blockingconcurrentqueue.h"
 
@@ -24,7 +22,7 @@ KSEQ_INIT(gzFile, gzread)
 #include "lbdg.h"
 
 #ifndef LCMER_SIZE
-#define LCMER_SIZE 12
+#define LCMER_SIZE 16
 #endif
 #define TIME_CHECKPOINT_INIT(NAME)               \
     clock_t NAME##_start = clock(), NAME##_diff; \
@@ -146,7 +144,7 @@ struct std::hash<lcrun> {
 void lspag_print_ref_seq(struct opt_arg *args, FILE *out) {
     TIME_CHECKPOINT_INIT(LSPACETIME);
 
-    printf("[INFO] Processing reference...\n");
+    fprintf(stderr,"[INFO] Processing reference...\n");
 
     fprintf(out, "H\tVN:Z:1.1\n");
     /*
@@ -191,6 +189,16 @@ void lspag_print_ref_seq(struct opt_arg *args, FILE *out) {
         gtl::priv::hash_default_eq<lcmer<LCMER_SIZE>>,
         std::allocator<std::pair<const lcmer<LCMER_SIZE>, idx_and_nls>>, 4, mutex_type>;
 
+    using core_pos_map_t = gtl::parallel_flat_hash_map<
+        uint32_t,
+        std::tuple<char *, int, int>,
+        std::hash<uint32_t>,
+        gtl::priv::hash_default_eq<uint32_t>,
+        std::allocator<std::pair<const uint32_t, std::tuple<char*, int, int>>>,
+        4,
+        mutex_type>;
+    core_pos_map_t cpm;
+
     dbg_map dbg;
     gzFile fp;
     kseq_t *seq;
@@ -210,6 +218,7 @@ void lspag_print_ref_seq(struct opt_arg *args, FILE *out) {
         }
         for (int j = 1; j <= LCMER_SIZE; ++j) {
             l.data[j - 1] = cores[j].id;
+            cpm.try_emplace(cores[j].id, s, cores[j].start, cores[j].end);
         }
         for (int j = LCMER_SIZE + 1; j < chrom.cores_size - 1; j++) {
             dbg.lazy_emplace_l(
@@ -222,6 +231,7 @@ void lspag_print_ref_seq(struct opt_arg *args, FILE *out) {
                         lcmer_index+=128;
                     }
                     );
+            cpm.try_emplace(cores[j].id, s, cores[j].start, cores[j].end);
 //            dbg[l].insert(cores[j].id);
             l = update_lcmer(l, cores[j].id);
         }
@@ -237,7 +247,7 @@ void lspag_print_ref_seq(struct opt_arg *args, FILE *out) {
 //        dbg[l];
         free(chrom.cores);
         free(n);
-        free(s);
+        //free(s);
         return lcmer_index;
     };
     using produced_data_type = std::tuple<char *, char *, int>;
@@ -260,14 +270,12 @@ void lspag_print_ref_seq(struct opt_arg *args, FILE *out) {
     for (int i = 0; i < std::max(1, args->thread_number-1); ++i) {
         consumers.emplace_back([&]() {
             unsigned int tid = thread_id();
-            printf("%d\n", tid);
+            fprintf(stderr,"t %d\n", tid);
 
             uint64_t idx = 0;
             moodycamel::ConsumerToken ct(bcq);
             gtl::vector<produced_data_type> queried;
             while (!done || bcq.size_approx() > 0) {
-                std::tuple<char *, char *, int> item;
-
                 bcq.wait_dequeue_bulk(ct, std::back_inserter(queried), 32);
 
                 for(const auto &item : queried)
@@ -308,8 +316,6 @@ void lspag_print_ref_seq(struct opt_arg *args, FILE *out) {
     kseq_destroy(seq);
     gzclose(fp);
     
-    
-
     
     using lcmer_idx_map_t = gtl::parallel_flat_hash_map<
         size_t,const lcmer<LCMER_SIZE> *>;
@@ -357,7 +363,8 @@ void lspag_print_ref_seq(struct opt_arg *args, FILE *out) {
         const lcmer<LCMER_SIZE> *, std::pair<std::string, size_t>,
         lcmerp_hash<LCMER_SIZE>,
         lcmerp_eq<LCMER_SIZE>,
-        std::allocator<std::pair<const lcmer<LCMER_SIZE> *,std::pair<std::string, size_t>>>, 4>;
+        std::allocator<std::pair<const lcmer<LCMER_SIZE> *,std::pair<std::string, size_t>>>,
+        4>;
     lcmer_2_unitig_pos_t  find_unitigs;
 
     while(getline(&buffer, &N, gfatools_p)!=-1){
@@ -377,13 +384,12 @@ void lspag_print_ref_seq(struct opt_arg *args, FILE *out) {
                     [&](unitig_map_t::value_type &v){
 //                        find_unitigs.try_emplace(l, uid, v.second.data.size());
                         v.second.push_back(l->data[LCMER_SIZE-1]);
-
                     },
                     [&](const unitig_map_t::constructor &ctor){
                         ctor(uid, *l);
                     }
             );
-                 }
+            }
             break;
         case 'L':{//TODO Implement orientation logic
             token = strtok(NULL,"\t");
@@ -398,8 +404,35 @@ void lspag_print_ref_seq(struct opt_arg *args, FILE *out) {
             fprintf(stderr, "Unknown type %c\n", *token);
         }
     }
+
     for(const auto &p : um){
-        printf("%s\t%lu\n", p.first.c_str(), p.second.data.size());
+        printf(">%s\t%lu\n", p.first.c_str(), p.second.data.size());
+        uint32_t core = p.second.data[0];
+        auto &core_loc = cpm.at(core);
+        int start = std::get<1>(core_loc);
+        int end = std::get<2>(core_loc);
+        const char *sq = std::get<0>(core_loc);
+        for(int i = 1; i < p.second.data.size(); ++i){
+            uint32_t core = p.second.data[i];
+            auto &core_loc = cpm.at(core);
+            if(sq==std::get<0>(core_loc)){
+                start = std::min(start, std::get<1>(core_loc));
+                end   = std::max(end,      std::get<2>(core_loc));
+            }
+            else{
+                for(int i = start; i < end; ++i){
+                    putc(sq[i], stdout);
+                }
+                start = std::get<1>(core_loc);
+                end   = std::get<2>(core_loc);
+                sq    = std::get<0>(core_loc);
+            }
+        }
+        for(int i = start; i < end; ++i){
+            putc(sq[i], stdout);
+        }
+
+        putc('\n', stdout);
     }
     //TODO Using longer lcmer to resolve ambiguity
     //TODO iterate reads, replace the cores with sequences using the idx
