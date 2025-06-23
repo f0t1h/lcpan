@@ -7,6 +7,7 @@
 #include <thread>
 #include <tuple>
 #include <utility>
+#include <chrono>
 
 #include <atomic>
 #include "fa_parser.h"
@@ -24,19 +25,42 @@ KSEQ_INIT(gzFile, gzread)
 #ifndef LCMER_SIZE
 #define LCMER_SIZE 16
 #endif
-#define TIME_CHECKPOINT_INIT(NAME)               \
-    clock_t NAME##_start = clock(), NAME##_diff; \
-    int NAME##_msec
 
-#define TIME_CHECKPOINT(NAME, fmt)                                    \
-    do {                                                              \
-        NAME##_diff = clock() - NAME##_start;                         \
-        NAME##_msec = NAME##_diff * 1000 / CLOCKS_PER_SEC;            \
-        fprintf(stderr, fmt, NAME##_msec / 1000, NAME##_msec % 1000); \
-        NAME##_start = clock();                                       \
+#include <chrono>
+#include <ctime>
+#include <cstdio>
+
+
+#define INIT_TIMERS(name) \
+    std::chrono::high_resolution_clock::time_point name##_chrono_start = std::chrono::high_resolution_clock::now(); \
+    std::chrono::high_resolution_clock::time_point name##_last_checkpoint = name##_chrono_start; \
+    clock_t name##_clock_start = std::clock(); \
+    clock_t name##_last_clock = name##_clock_start;
+
+
+#define TIME_CHECKPOINT(name, stream, fmt, ...) \
+    do { \
+        auto name##_now = std::chrono::high_resolution_clock::now(); \
+        clock_t name##_clock_now = std::clock(); \
+        \
+        long long name##_total_elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(name##_now - name##_chrono_start).count(); \
+        long long name##_interval_elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(name##_now - name##_last_checkpoint).count(); \
+        \
+        double name##_total_cpu = 1000.0 * (name##_clock_now - name##_clock_start) / CLOCKS_PER_SEC; \
+        double name##_interval_cpu = 1000.0 * (name##_clock_now - name##_last_clock) / CLOCKS_PER_SEC; \
+        \
+        double name##_total_util = (name##_total_elapsed > 0) ? (name##_total_cpu / name##_total_elapsed) * 100.0 : 0.0; \
+        double name##_interval_util = (name##_interval_elapsed > 0) ? (name##_interval_cpu / name##_interval_elapsed) * 100.0 : 0.0; \
+        \
+        fprintf(stream, "[Checkpoint: %s] ", #name); \
+        fprintf(stream, fmt, ##__VA_ARGS__); \
+        fprintf(stream, "\n"); \
+        fprintf(stream, "  Total:   Wall = %lld ms, CPU = %.2f ms, Utilization = %.2f%%\n", name##_total_elapsed, name##_total_cpu, name##_total_util); \
+        fprintf(stream, "  Current: Wall = %lld ms, CPU = %.2f ms, Utilization = %.2f%%\n\n", name##_interval_elapsed, name##_interval_cpu, name##_interval_util); \
+        \
+        name##_last_checkpoint = name##_now; \
+        name##_last_clock = name##_clock_now; \
     } while (0)
-
-
 
 static std::atomic<unsigned long long> thread_counter;
 
@@ -142,7 +166,7 @@ struct std::hash<lcrun> {
     }
 };
 void lspag_print_ref_seq(struct opt_arg *args, FILE *out) {
-    TIME_CHECKPOINT_INIT(LSPACETIME);
+    INIT_TIMERS(LSPACETIME);
 
     fprintf(stderr,"[INFO] Processing reference...\n");
 
@@ -207,6 +231,7 @@ void lspag_print_ref_seq(struct opt_arg *args, FILE *out) {
     seq = kseq_init(fp);
     size_t idx = 0;
 
+    TIME_CHECKPOINT(LSPACETIME, stderr, "Starting Assembly");
     auto process_seq = [&](char *n, char *s, int len, int tid, uint64_t lcmer_index) {
         lcmer<LCMER_SIZE> l;
         struct chr chrom = COLITERAL(chr){n, idx++, len, s, 0, 0, 0};
@@ -238,7 +263,7 @@ void lspag_print_ref_seq(struct opt_arg *args, FILE *out) {
 
         dbg.lazy_emplace_l(
                 l,
-                [](dbg_map::value_type &v){},
+                [](dbg_map::value_type &){},
                 [&](const dbg_map::constructor &ctor){
                     ctor(l, std::pair(lcmer_index | tid, next_lcmer_set{}));
                     lcmer_index += 128;
@@ -323,7 +348,7 @@ void lspag_print_ref_seq(struct opt_arg *args, FILE *out) {
 //    std::unordered_map<const lcmer<LCMER_SIZE> *, size_t, lcmerp_hash<LCMER_SIZE>, lcmerp_eq<LCMER_SIZE>> lim;
     lcmer_idx_map_t lim;
     idx=0;
-    TIME_CHECKPOINT(LSPACETIME, "Built DBG %d sec %d ms\n");
+    TIME_CHECKPOINT(LSPACETIME, stderr, "Built DBG: LCMER #=%lu", dbg.size() );
     for (const auto &p : dbg) {
         fprintf(out, "S\t%lu\t*\tLN:i:%d\n", p.second.first, LCMER_SIZE);
         lim[p.second.first] = &p.first;
@@ -405,6 +430,8 @@ void lspag_print_ref_seq(struct opt_arg *args, FILE *out) {
         }
     }
 
+    uint64_t bcount = 0;
+    TIME_CHECKPOINT(LSPACETIME, stderr, "Simplified DBG");
     for(const auto &p : um){
         printf(">%s\t%lu\n", p.first.c_str(), p.second.data.size());
         uint32_t core = p.second.data[0];
@@ -412,7 +439,7 @@ void lspag_print_ref_seq(struct opt_arg *args, FILE *out) {
         int start = std::get<1>(core_loc);
         int end = std::get<2>(core_loc);
         const char *sq = std::get<0>(core_loc);
-        for(int i = 1; i < p.second.data.size(); ++i){
+        for(size_t i = 1; i < p.second.data.size(); ++i){
             uint32_t core = p.second.data[i];
             auto &core_loc = cpm.at(core);
             if(sq==std::get<0>(core_loc)){
@@ -420,25 +447,21 @@ void lspag_print_ref_seq(struct opt_arg *args, FILE *out) {
                 end   = std::max(end,      std::get<2>(core_loc));
             }
             else{
-                for(int i = start; i < end; ++i){
-                    putc(sq[i], stdout);
-                }
+                printf("%.*s", end-start, sq+start);
                 start = std::get<1>(core_loc);
                 end   = std::get<2>(core_loc);
                 sq    = std::get<0>(core_loc);
+                bcount+=(end-start);
             }
         }
-        for(int i = start; i < end; ++i){
-            putc(sq[i], stdout);
-        }
-
-        putc('\n', stdout);
+        printf("%.*s\n", end-start, sq+start);
+        bcount+=end-start;
     }
     //TODO Using longer lcmer to resolve ambiguity
     //TODO iterate reads, replace the cores with sequences using the idx
 
     fclose(gfatools_p);
     free(buffer);
-    TIME_CHECKPOINT(LSPACETIME, "Printed DBG %d sec %d ms\n");
+    TIME_CHECKPOINT(LSPACETIME, stderr, "Printed Assembly Sequences %lu unitigs and %lu bases", um.size(), bcount);
 }
 
