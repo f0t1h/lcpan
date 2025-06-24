@@ -1,3 +1,4 @@
+
 #include <string.h>
 #include <zlib.h>
 
@@ -7,8 +8,7 @@
 #include <utility>
 #include <chrono>
 #include <atomic>
-#include "lcptools_ho.h"
-#include "include/blockingconcurrentqueue.h"
+#include "include/concurrentqueue.h"
 
 #include "include/gtl/phmap.hpp"
 #include "include/gtl/vector.hpp"
@@ -17,7 +17,6 @@
 #include "kseq.h"
 KSEQ_INIT(gzFile, gzread)
 #include "fa_parser.h"
-#include "lbdg.h"
 
 #ifndef LCMER_SIZE
 #define LCMER_SIZE 32
@@ -280,7 +279,7 @@ void lspag_print_ref_seq(struct opt_arg *args, FILE *out) {
         return lcmer_index;
     };
     using produced_data_type = std::tuple<char *, char *, int>;
-    moodycamel::BlockingConcurrentQueue<produced_data_type> bcq;
+    moodycamel::ConcurrentQueue<produced_data_type> bcq;
     moodycamel::ProducerToken pt(bcq);
     std::atomic<bool> done;
     std::thread fqproducer([&]() {
@@ -305,7 +304,7 @@ void lspag_print_ref_seq(struct opt_arg *args, FILE *out) {
             moodycamel::ConsumerToken ct(bcq);
             gtl::vector<produced_data_type> queried;
             while (!done || bcq.size_approx() > 0) {
-                bcq.wait_dequeue_bulk(ct, std::back_inserter(queried), 32);
+                bcq.try_dequeue_bulk(ct, std::back_inserter(queried), 32);
 
                 for(const auto &item : queried)
                     idx = process_seq(std::get<0>(item),
@@ -378,7 +377,7 @@ void lspag_print_ref_seq(struct opt_arg *args, FILE *out) {
     fclose(out);
 
     char cmd[1024];
-    sprintf(cmd, "gfatools asm -u %s", args->gfa_path); 
+    snprintf(cmd, 1024, "gfatools asm -u %s", args->gfa_path); 
     FILE *gfatools_p = popen(cmd, "r");
     size_t N = 0;
     char *buffer = NULL;
@@ -486,6 +485,6 @@ void lspag_print_ref_seq(struct opt_arg *args, FILE *out) {
     fclose(out);
     fclose(gfatools_p);
     free(buffer);
-    TIME_CHECKPOINT(LSPACETIME, stderr, "Printed Assembly Sequences %lu unitigs and %lu bases", um.size(), bcount);
+    TIME_CHECKPOINT(LSPACETIME, stderr, "Printed Assembly Sequences %lu unitigs and %llu bases", um.size(), bcount);
 }
 

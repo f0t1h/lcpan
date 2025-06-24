@@ -1,6 +1,6 @@
 # programs
 TARGET := lcpan
-SRCS := $(wildcard *.c)
+SRCS := lspace.c lcpan.c lps_sparse_addon.c opt_parser.c fa_parser.c utils.c
 
 OBJS := $(SRCS:.c=.o)
 DOBJS := $(SRCS:.c=.dbg.o)
