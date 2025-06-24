@@ -1,14 +1,11 @@
 #include <string.h>
 #include <zlib.h>
 
-#include <algorithm>
 #include <array>
-#include <map>
 #include <thread>
 #include <tuple>
 #include <utility>
 #include <chrono>
-
 #include <atomic>
 #include "fa_parser.h"
 #include "include/blockingconcurrentqueue.h"
@@ -23,7 +20,7 @@ KSEQ_INIT(gzFile, gzread)
 #include "lbdg.h"
 
 #ifndef LCMER_SIZE
-#define LCMER_SIZE 16
+#define LCMER_SIZE 32
 #endif
 
 #include <chrono>
@@ -214,11 +211,11 @@ void lspag_print_ref_seq(struct opt_arg *args, FILE *out) {
         std::allocator<std::pair<const lcmer<LCMER_SIZE>, idx_and_nls>>, 4, mutex_type>;
 
     using core_pos_map_t = gtl::parallel_flat_hash_map<
-        uint32_t,
-        std::tuple<char *, int, int>,
-        std::hash<uint32_t>,
-        gtl::priv::hash_default_eq<uint32_t>,
-        std::allocator<std::pair<const uint32_t, std::tuple<char*, int, int>>>,
+        uint64_t,
+        std::tuple<char *, int, int, int, int, struct simple_core *>,
+        std::hash<uint64_t>,
+        gtl::priv::hash_default_eq<uint64_t>,
+        std::allocator<std::pair<const uint64_t, std::tuple<char*, int, int, int, int, struct simple_core *>>>,
         4,
         mutex_type>;
     core_pos_map_t cpm;
@@ -238,12 +235,16 @@ void lspag_print_ref_seq(struct opt_arg *args, FILE *out) {
         lbdg_process_chrom(s, len, args->lcp_level, &chrom);
        // printf("%d\n", chrom.cores_size);
         struct simple_core *cores = chrom.cores;
+        bool str_used = false;
         if (chrom.cores_size < LCMER_SIZE + 2) {
             return lcmer_index;
         }
+        uint64_t cpair = cores[0].id;
         for (int j = 1; j <= LCMER_SIZE; ++j) {
             l.data[j - 1] = cores[j].id;
-            cpm.try_emplace(cores[j].id, s, cores[j].start, cores[j].end);
+            cpair = (cpair << 32) | (unsigned) cores[j].id;
+            str_used |= cpm.try_emplace(cpair, s, cores[j].start, cores[j].end, j, chrom.cores_size, cores).second;
+
         }
         for (int j = LCMER_SIZE + 1; j < chrom.cores_size - 1; j++) {
             dbg.lazy_emplace_l(
@@ -256,7 +257,8 @@ void lspag_print_ref_seq(struct opt_arg *args, FILE *out) {
                         lcmer_index+=128;
                     }
                     );
-            cpm.try_emplace(cores[j].id, s, cores[j].start, cores[j].end);
+            cpair = (cpair << 32) | (unsigned) cores[j].id;
+            str_used |= cpm.try_emplace(cpair, s, cores[j].start, cores[j].end, j, chrom.cores_size, cores).second;
 //            dbg[l].insert(cores[j].id);
             l = update_lcmer(l, cores[j].id);
         }
@@ -270,9 +272,11 @@ void lspag_print_ref_seq(struct opt_arg *args, FILE *out) {
                 }
                 );
 //        dbg[l];
-        free(chrom.cores);
+//        free(chrom.cores);
         free(n);
-        //free(s);
+        if(!str_used){
+            free(s);
+        }
         return lcmer_index;
     };
     using produced_data_type = std::tuple<char *, char *, int>;
@@ -372,11 +376,12 @@ void lspag_print_ref_seq(struct opt_arg *args, FILE *out) {
         }
     }
     fclose(out);
+
     char cmd[1024];
     sprintf(cmd, "gfatools asm -u %s", args->gfa_path); 
     FILE *gfatools_p = popen(cmd, "r");
     size_t N = 0;
-    char *buffer;
+    char *buffer = NULL;
     
     using unitig_map_t = gtl::parallel_flat_hash_map<std::string, lcrun>;
     unitig_map_t um;
@@ -392,7 +397,9 @@ void lspag_print_ref_seq(struct opt_arg *args, FILE *out) {
         4>;
     lcmer_2_unitig_pos_t  find_unitigs;
 
+    out = fopen("proc.gfa","w");
     while(getline(&buffer, &N, gfatools_p)!=-1){
+        fprintf(out, "%s", buffer);
         char *token = strtok(buffer, "\t");
         switch(*token){
         case 'S':
@@ -434,24 +441,41 @@ void lspag_print_ref_seq(struct opt_arg *args, FILE *out) {
     TIME_CHECKPOINT(LSPACETIME, stderr, "Simplified DBG");
     for(const auto &p : um){
         printf(">%s\t%lu\n", p.first.c_str(), p.second.data.size());
-        uint32_t core = p.second.data[0];
+        uint64_t core = ((uint64_t)p.second.data[0] << 32) | p.second.data[1];
+
         auto &core_loc = cpm.at(core);
+
         int start = std::get<1>(core_loc);
         int end = std::get<2>(core_loc);
-        const char *sq = std::get<0>(core_loc);
-        for(size_t i = 1; i < p.second.data.size(); ++i){
-            uint32_t core = p.second.data[i];
+        char *sq = std::get<0>(core_loc);
+        for(size_t i = 2; i < p.second.data.size(); ++i){
+            uint64_t pcore = core;
+            core = (core << 32) | p.second.data[i];
             auto &core_loc = cpm.at(core);
             if(sq==std::get<0>(core_loc)){
                 start = std::min(start, std::get<1>(core_loc));
-                end   = std::max(end,      std::get<2>(core_loc));
+                end   = std::max(end,   std::get<2>(core_loc));
             }
             else{
                 printf("%.*s", end-start, sq+start);
+                bcount+=(end-start);
                 start = std::get<1>(core_loc);
                 end   = std::get<2>(core_loc);
+                //free(sq);
                 sq    = std::get<0>(core_loc);
-                bcount+=(end-start);
+                auto *core_l = std::get<5>(cpm.at(pcore));
+                int pp = std::get<3>(cpm.at(pcore));
+                if(core_l[pp+1].end < core_l[pp].end){
+                    continue;
+                }
+                int ovlp = core_l[pp].end - core_l[pp+1].start;
+                if (ovlp > 0){
+                    start += ovlp;
+                }
+
+//                uint64_t trio[3] = {core_l[pp-1].id,core_l[pp].id,core_l[pp+1].id};
+//                fprintf(stderr, "%lu\t%lu\t%lu\t%lu\n", core, pcore, (trio[0]<<32)|trio[1], (trio[1]<<32)|trio[2]);
+
             }
         }
         printf("%.*s\n", end-start, sq+start);
@@ -459,7 +483,7 @@ void lspag_print_ref_seq(struct opt_arg *args, FILE *out) {
     }
     //TODO Using longer lcmer to resolve ambiguity
     //TODO iterate reads, replace the cores with sequences using the idx
-
+    fclose(out);
     fclose(gfatools_p);
     free(buffer);
     TIME_CHECKPOINT(LSPACETIME, stderr, "Printed Assembly Sequences %lu unitigs and %lu bases", um.size(), bcount);

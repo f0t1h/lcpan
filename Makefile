@@ -9,9 +9,9 @@ DOBJS := $(SRCS:.c=.dbg.o)
 CURRENT_DIR := $(shell pwd)
 
 GXX ?= gcc
-OPT_FLAGS=-O3
-DBG_OPT_FLAGS=-O0 -g -mno-avx
-CXXFLAGS = -Wall -Wextra -Wpedantic -march=native -ftree-vectorize -lz -Wno-interference-size -lrt
+OPT_FLAGS=-O3 -march=native -ftree-vectorize
+DBG_OPT_FLAGS=-O0 -g -mno-avx  -fsanitize=address -fsanitize=undefined 
+CXXFLAGS = -fuse-ld=lld -Wall -Wextra -Wpedantic  -lz -Wno-interference-size -lrt 
 ifeq (${GXX},g++)
 CXXFLAGS := ${CXXFLAGS} -std=c++23
 endif
