@@ -2,7 +2,7 @@
 #define __UTILS_H__
 
 #include "struct_def.h"
-#include "lps.h"
+#include "lcptools_ho.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>

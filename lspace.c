@@ -7,7 +7,7 @@
 #include <utility>
 #include <chrono>
 #include <atomic>
-#include "fa_parser.h"
+#include "lcptools_ho.h"
 #include "include/blockingconcurrentqueue.h"
 
 #include "include/gtl/phmap.hpp"
@@ -16,7 +16,7 @@
 
 #include "kseq.h"
 KSEQ_INIT(gzFile, gzread)
-
+#include "fa_parser.h"
 #include "lbdg.h"
 
 #ifndef LCMER_SIZE

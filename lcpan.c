@@ -13,7 +13,8 @@
  * genome assembly and analysis.
  *
  */
-
+#define LCPTOOLS_IMPL
+#include "lcptools_ho.h"
 #include "struct_def.h"
 #include "utils.h"
 #include "opt_parser.h"
@@ -22,6 +23,7 @@
 #include "vgx.h"
 #include "lbdg.h"
 #include "lspace.h"
+
 
 int main(int argc, char* argv[]) {
 

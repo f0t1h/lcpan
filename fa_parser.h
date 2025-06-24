@@ -2,12 +2,11 @@
 #define __FASTA_PARSER__
 
 #include "struct_def.h"
-#include "lps.h"
-#include "utils.h"
+#include "lcptools_ho.h"
 #include <stdio.h>
 #include <string.h>
 #include <math.h>
-
+#include "utils.h"
 
 uint64_t MurmurHash3_32(const void *key, int len);
 
