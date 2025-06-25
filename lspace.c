@@ -238,7 +238,7 @@ void lspag_print_ref_seq(struct opt_arg *args, FILE *out) {
         if (chrom.cores_size < LCMER_SIZE + 2) {
             return lcmer_index;
         }
-        uint64_t cpair = cores[0].id;
+        uint64_t cpair = 0;// cores[0].id;
         for (int j = 1; j <= LCMER_SIZE; ++j) {
             l.data[j - 1] = cores[j].id;
             cpair = (cpair << 32) | (unsigned) cores[j].id;
@@ -252,7 +252,7 @@ void lspag_print_ref_seq(struct opt_arg *args, FILE *out) {
                         v.second.second.insert(cores[j].id);
                     },
                     [&](const dbg_map::constructor &ctor){
-                        ctor(l, std::pair(lcmer_index | tid, next_lcmer_set{}));
+                        ctor(l, std::pair(lcmer_index | tid, next_lcmer_set{cores[j].id}));
                         lcmer_index+=128;
                     }
                     );
@@ -301,10 +301,10 @@ void lspag_print_ref_seq(struct opt_arg *args, FILE *out) {
             fprintf(stderr,"t %d\n", tid);
 
             uint64_t idx = 0;
-            moodycamel::ConsumerToken ct(bcq);
+//            moodycamel::ConsumerToken ct(bcq);
             gtl::vector<produced_data_type> queried;
             while (!done || bcq.size_approx() > 0) {
-                bcq.try_dequeue_bulk(ct, std::back_inserter(queried), 32);
+                bcq.try_dequeue_bulk_from_producer(pt, std::back_inserter(queried), 32);
 
                 for(const auto &item : queried)
                     idx = process_seq(std::get<0>(item),
@@ -440,14 +440,14 @@ void lspag_print_ref_seq(struct opt_arg *args, FILE *out) {
     TIME_CHECKPOINT(LSPACETIME, stderr, "Simplified DBG");
     for(const auto &p : um){
         printf(">%s\t%lu\n", p.first.c_str(), p.second.data.size());
-        uint64_t core = ((uint64_t)p.second.data[0] << 32) | p.second.data[1];
-
+//        uint64_t core = ((uint64_t)p.second.data[0] << 32) | p.second.data[1];
+        uint64_t core = p.second.data[0];
         auto &core_loc = cpm.at(core);
 
         int start = std::get<1>(core_loc);
         int end = std::get<2>(core_loc);
         char *sq = std::get<0>(core_loc);
-        for(size_t i = 2; i < p.second.data.size(); ++i){
+        for(size_t i = 1; i < p.second.data.size(); ++i){
             uint64_t pcore = core;
             core = (core << 32) | p.second.data[i];
             auto &core_loc = cpm.at(core);
