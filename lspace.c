@@ -452,7 +452,7 @@ void lspag_print_ref_seq(struct opt_arg *args, FILE *out) {
             core = (core << 32) | p.second.data[i];
             auto &core_loc = cpm.at(core);
             if(sq==std::get<0>(core_loc)){
-                start = std::min(start, std::get<1>(core_loc));
+//                start = std::min(start, std::get<1>(core_loc));
                 end   = std::max(end,   std::get<2>(core_loc));
             }
             else{
