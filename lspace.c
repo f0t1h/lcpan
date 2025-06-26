@@ -439,7 +439,7 @@ void lspag_print_ref_seq(struct opt_arg *args, FILE *out) {
     uint64_t bcount = 0;
     TIME_CHECKPOINT(LSPACETIME, stderr, "Simplified DBG");
     for(const auto &p : um){
-        printf(">%s\t%lu\n", p.first.c_str(), p.second.data.size());
+        printf(">%s %lu\n", p.first.c_str(), p.second.data.size());
 //        uint64_t core = ((uint64_t)p.second.data[0] << 32) | p.second.data[1];
         uint64_t core = p.second.data[0];
         auto &core_loc = cpm.at(core);
