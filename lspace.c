@@ -19,7 +19,7 @@ KSEQ_INIT(gzFile, gzread)
 #include "fa_parser.h"
 
 #ifndef LCMER_SIZE
-#define LCMER_SIZE 32
+#define LCMER_SIZE 8
 #endif
 
 #include <chrono>
@@ -202,8 +202,8 @@ void lspag_print_ref_seq(struct opt_arg *args, FILE *out) {
         gtl::parallel_flat_hash_set<uint32_t,
                                     gtl::priv::hash_default_hash<uint32_t>,
                                     gtl::priv::hash_default_eq<uint32_t>,
-                                    std::allocator<uint32_t>, 4, mutex_type>;
-    using idx_and_nls = std::pair<size_t, next_lcmer_set>;
+                                    std::allocator<uint32_t>, 2, mutex_type>;
+    using idx_and_nls = std::pair<uint32_t, next_lcmer_set>;
     using dbg_map = gtl::parallel_flat_hash_map<
         lcmer<LCMER_SIZE>, idx_and_nls, std::hash<lcmer<LCMER_SIZE>>,
         gtl::priv::hash_default_eq<lcmer<LCMER_SIZE>>,
@@ -226,7 +226,7 @@ void lspag_print_ref_seq(struct opt_arg *args, FILE *out) {
     fp = gzopen(args->fasta_path, "r");
     seq = kseq_init(fp);
     size_t idx = 0;
-
+    std::atomic<int> skip_count = 0;
     TIME_CHECKPOINT(LSPACETIME, stderr, "Starting Assembly");
     auto process_seq = [&](char *n, char *s, int len, int tid, uint64_t lcmer_index) {
         lcmer<LCMER_SIZE> l;
@@ -236,13 +236,14 @@ void lspag_print_ref_seq(struct opt_arg *args, FILE *out) {
         struct simple_core *cores = chrom.cores;
         bool str_used = false;
         if (chrom.cores_size < LCMER_SIZE + 2) {
+            skip_count.fetch_add(1);
             return lcmer_index;
         }
         uint64_t cpair = 0;// cores[0].id;
         for (int j = 1; j <= LCMER_SIZE; ++j) {
             l.data[j - 1] = cores[j].id;
             cpair = (cpair << 32) | (unsigned) cores[j].id;
-            str_used |= cpm.try_emplace(cpair, s, cores[j].start, cores[j].end, j, chrom.cores_size, cores).second;
+//            str_used |= cpm.try_emplace(cpair, s, cores[j].start, cores[j].end, j, chrom.cores_size, cores).second;
 
         }
         for (int j = LCMER_SIZE + 1; j < chrom.cores_size - 1; j++) {
@@ -257,7 +258,7 @@ void lspag_print_ref_seq(struct opt_arg *args, FILE *out) {
                     }
                     );
             cpair = (cpair << 32) | (unsigned) cores[j].id;
-            str_used |= cpm.try_emplace(cpair, s, cores[j].start, cores[j].end, j, chrom.cores_size, cores).second;
+//            str_used |= cpm.try_emplace(cpair, s, cores[j].start, cores[j].end, j, chrom.cores_size, cores).second;
 //            dbg[l].insert(cores[j].id);
             l = update_lcmer(l, cores[j].id);
         }
@@ -271,26 +272,28 @@ void lspag_print_ref_seq(struct opt_arg *args, FILE *out) {
                 }
                 );
 //        dbg[l];
-//        free(chrom.cores);
+        free(chrom.cores);
         free(n);
-        if(!str_used){
-            free(s);
-        }
+        //if(!str_used){
+        free(s);
+        //}
         return lcmer_index;
     };
     using produced_data_type = std::tuple<char *, char *, int>;
-    moodycamel::ConcurrentQueue<produced_data_type> bcq;
+    moodycamel::ConcurrentQueue<produced_data_type> bcq{(size_t)args->thread_number*1024, 1, 0};
     moodycamel::ProducerToken pt(bcq);
-    std::atomic<bool> done;
+    std::atomic<bool> done{false};
     std::thread fqproducer([&]() {
         while (kseq_read(seq) >= 0) {
             char *n = (char *)malloc(seq->name.l + 1);
             char *s = (char *)malloc(seq->seq.l + 1);
             std::strncpy(n, seq->name.s, seq->name.l + 1);
             std::strncpy(s, seq->seq.s, seq->seq.l + 1);
-            bcq.enqueue(pt, std::make_tuple(n, s, seq->seq.l));
+            while(!bcq.try_enqueue(pt, std::make_tuple(n, s, seq->seq.l))){
+
+            }
         }
-        done = true;
+        done.exchange(true);
     });
 
     std::vector<std::thread> consumers;
@@ -303,8 +306,8 @@ void lspag_print_ref_seq(struct opt_arg *args, FILE *out) {
             uint64_t idx = 0;
 //            moodycamel::ConsumerToken ct(bcq);
             gtl::vector<produced_data_type> queried;
-            while (!done || bcq.size_approx() > 0) {
-                bcq.try_dequeue_bulk_from_producer(pt, std::back_inserter(queried), 32);
+            while (!done.load() || bcq.size_approx() > 0) {
+                bcq.try_dequeue_bulk_from_producer(pt, std::back_inserter(queried), 8);
 
                 for(const auto &item : queried)
                     idx = process_seq(std::get<0>(item),
@@ -319,7 +322,7 @@ void lspag_print_ref_seq(struct opt_arg *args, FILE *out) {
     for (std::thread &t : consumers) {
         t.join();
     }
-
+    fprintf(stderr, "Skipped %d reads due to length\n", skip_count.load());
     /*
        while(kseq_read(seq) >= 0){
        struct chr chrom = COLITERAL(chr){seq->name.s, idx++, (int) seq->seq.l,
@@ -438,16 +441,18 @@ void lspag_print_ref_seq(struct opt_arg *args, FILE *out) {
 
     uint64_t bcount = 0;
     TIME_CHECKPOINT(LSPACETIME, stderr, "Simplified DBG");
+    fclose(out);
+    return;
     for(const auto &p : um){
         printf(">%s %lu\n", p.first.c_str(), p.second.data.size());
-//        uint64_t core = ((uint64_t)p.second.data[0] << 32) | p.second.data[1];
-        uint64_t core = p.second.data[0];
+        uint64_t core = ((uint64_t)p.second.data[0] << 32) | p.second.data[1];
+//        uint64_t core = p.second.data[0];
         auto &core_loc = cpm.at(core);
 
         int start = std::get<1>(core_loc);
         int end = std::get<2>(core_loc);
         char *sq = std::get<0>(core_loc);
-        for(size_t i = 1; i < p.second.data.size(); ++i){
+        for(size_t i = 2; i < p.second.data.size(); ++i){
             uint64_t pcore = core;
             core = (core << 32) | p.second.data[i];
             auto &core_loc = cpm.at(core);
@@ -482,7 +487,7 @@ void lspag_print_ref_seq(struct opt_arg *args, FILE *out) {
     }
     //TODO Using longer lcmer to resolve ambiguity
     //TODO iterate reads, replace the cores with sequences using the idx
-    fclose(out);
+
     fclose(gfatools_p);
     free(buffer);
     TIME_CHECKPOINT(LSPACETIME, stderr, "Printed Assembly Sequences %lu unitigs and %llu bases", um.size(), bcount);
